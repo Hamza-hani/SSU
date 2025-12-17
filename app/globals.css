@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Google Font Integration */
+@import url('https://fonts.googleapis.com/css2?family=Science+Gothic:wght@100..900&display=swap');
+
+/* Custom Tailwind class for Science Gothic */
+.font-ssu {
+  font-family: 'Science Gothic', sans-serif;
+  font-weight: 700; /* adjust weight as needed */
+  font-style: normal;
+}
