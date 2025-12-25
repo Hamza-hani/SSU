@@ -1,5 +1,4 @@
-// types.ts (FULL UPDATED)
-
+// types.ts
 export type UserRole = "admin" | "user";
 
 export interface User {
@@ -8,23 +7,23 @@ export interface User {
   email: string;
   role: UserRole;
 
-  // optional so demo/admin logins won't break
+  // optional
+  unlockedCourses?: string[];
   enrolledCourses?: string[];
 }
 
-export type LessonType = "text" | "video" | "slides" | "quiz";
+/** Supported lesson types */
+export type LessonType = "text" | "video" | "quiz";
 
+/** Video source options */
 export type VideoSource =
   | { kind: "mp4"; url: string }
   | { kind: "youtube"; id: string }
-  | { kind: "vimeo"; id: string };
+  | { kind: "idb"; key: string; filename?: string };
 
-export type SlidesSource =
-  | { kind: "pdf"; url: string }
-  | { kind: "link"; url: string };
-
+/** Quiz types */
 export interface QuizOption {
-  id: string; // "A", "B", etc
+  id: string;
   text: string;
 }
 
@@ -36,13 +35,19 @@ export interface QuizQuestion {
   explanation?: string;
 }
 
-export interface QuizData {
-  passingPercent: number; // e.g. 70
-  questions: QuizQuestion[];
+export interface Quiz {
+  passingPercent?: number;
   shuffleQuestions?: boolean;
   shuffleOptions?: boolean;
+  questions: QuizQuestion[];
 }
 
+/** Gate rules */
+export interface LessonGate {
+  requiresAllPreviousLessons?: boolean;
+}
+
+/** Lesson */
 export interface Lesson {
   id: string;
   title: string;
@@ -51,51 +56,52 @@ export interface Lesson {
   // text
   content?: string;
 
-  // back-compat for mp4
-  url?: string;
-
-  // recommended
+  // video (AdminPanel uses lesson.video ✅)
   video?: VideoSource;
 
-  slides?: SlidesSource;
+  // (optional legacy/compat if you use elsewhere)
+  url?: string;
+  source?: VideoSource;
+
+  completed?: boolean;
+
+  // final assessment helpers
+  isFinalAssessment?: boolean;
+  gate?: LessonGate;
 
   // quiz
-  quiz?: QuizData;
-
-  // tracking
-  completed: boolean;
-
-  // assessment/locking
-  isFinalAssessment?: boolean;
-  gate?: {
-    requiresAllPreviousLessons?: boolean;
-  };
-
-  durationMin?: number;
+  quiz?: Quiz;
 }
 
+/** Module */
 export interface Module {
   id: string;
   title: string;
   lessons: Lesson[];
 }
 
-export type CourseLevel = "Beginner" | "Intermediate" | "Advanced";
-
+/** Course */
 export interface Course {
   id: string;
   title: string;
   description: string;
-
-  level: CourseLevel;
+  level: "Beginner" | "Intermediate" | "Advanced";
   category: string;
   duration: string;
 
   modules: number;
-  progress: number;
+  progress?: number;
 
   modulesList: Module[];
 
-  thumbnail?: string;
-  tags?: string[];
+  prerequisites?: string[];
 }
+
+/** Progress per user per course */
+export interface UserCourseProgress {
+  completedLessonIds: string[];
+  finalScore?: number;
+}
+
+/** Map: courseId => progress */
+export type ProgressMap = Record<string, UserCourseProgress>;

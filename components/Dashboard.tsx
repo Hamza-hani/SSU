@@ -1,46 +1,87 @@
-import { useState } from 'react';
-import { BookOpen, Award, Clock, Search, Filter } from 'lucide-react';
-import { Course, User } from '../types';
-import { courses as coursesData } from '../data/courses';
-import CourseCard from './CourseCard';
-import { useRouter } from 'next/navigation';
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { BookOpen, Award, Clock, Search, Filter } from "lucide-react";
+import type { Course, User } from "../types";
+import CourseCard from "./CourseCard";
+import { useRouter } from "next/navigation";
+import { EVENTS, loadCourses, loadProgressMap, calcCourseProgressPct } from "../lib/storage";
 
 interface DashboardProps {
   user: User;
-  onLogout: () => void;
 }
 
 export default function Dashboard({ user }: DashboardProps) {
   const router = useRouter();
-  const [courses] = useState<Course[]>(coursesData);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedLevel, setSelectedLevel] = useState<string>('all');
 
-  const totalProgress =
-    courses.reduce((sum, course) => sum + course.progress, 0) / courses.length;
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedLevel, setSelectedLevel] = useState<string>("all");
 
-  const completedCourses = courses.filter((c) => c.progress === 100).length;
+  // used only to force recalculation when PROGRESS_UPDATED fires
+  const [progressTick, setProgressTick] = useState(0);
 
-  const filteredCourses = courses.filter((course) => {
-    const matchesSearch =
-      course.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      course.description.toLowerCase().includes(searchTerm.toLowerCase());
+  useEffect(() => {
+    const hydrate = () => setCourses(loadCourses());
+    hydrate();
 
-    const matchesLevel =
-      selectedLevel === 'all' || course.level === selectedLevel;
+    const onCourses = () => hydrate();
+    const onProgress = () => setProgressTick((x) => x + 1);
 
-    return matchesSearch && matchesLevel;
-  });
+    window.addEventListener(EVENTS.COURSES_UPDATED, onCourses);
+    window.addEventListener(EVENTS.PROGRESS_UPDATED, onProgress);
+
+    return () => {
+      window.removeEventListener(EVENTS.COURSES_UPDATED, onCourses);
+      window.removeEventListener(EVENTS.PROGRESS_UPDATED, onProgress);
+    };
+  }, []);
+
+  // ✅ reload progress map whenever progressTick changes
+  const progressMap = useMemo(() => loadProgressMap(user.id), [user.id, progressTick]);
+
+  const coursesWithProgress = useMemo(() => {
+    return courses.map((c) => {
+      const pct = calcCourseProgressPct(c, progressMap[c.id]);
+      return { ...c, progress: pct };
+    });
+  }, [courses, progressMap]);
+
+  const totalProgress = useMemo(() => {
+    if (!coursesWithProgress.length) return 0;
+    return (
+      coursesWithProgress.reduce((sum, c) => sum + (c.progress || 0), 0) /
+      coursesWithProgress.length
+    );
+  }, [coursesWithProgress]);
+
+  const completedCourses = useMemo(
+    () => coursesWithProgress.filter((c) => (c.progress || 0) === 100).length,
+    [coursesWithProgress]
+  );
+
+  const filteredCourses = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+
+    return coursesWithProgress.filter((course) => {
+      const matchesSearch =
+        course.title.toLowerCase().includes(q) ||
+        course.description.toLowerCase().includes(q);
+
+      const matchesLevel = selectedLevel === "all" || course.level === selectedLevel;
+      return matchesSearch && matchesLevel;
+    });
+  }, [coursesWithProgress, searchTerm, selectedLevel]);
 
   const handleCourseClick = (courseId: string) => {
+    // ✅ fastest + safest navigation
     router.push(`/course/${courseId}`);
   };
 
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-
-        {/* Welcome Section */}
+        {/* Welcome */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
             Welcome back, {user.name}
@@ -58,7 +99,7 @@ export default function Dashboard({ user }: DashboardProps) {
                 <BookOpen className="h-6 w-6 text-white" />
               </div>
               <span className="text-2xl font-bold text-gray-900">
-                {courses.length}
+                {coursesWithProgress.length}
               </span>
             </div>
             <h3 className="text-gray-600 font-medium">Total Courses</h3>
@@ -69,9 +110,7 @@ export default function Dashboard({ user }: DashboardProps) {
               <div className="bg-green-100 p-3 rounded-lg">
                 <Award className="h-6 w-6 text-green-600" />
               </div>
-              <span className="text-2xl font-bold text-gray-900">
-                {completedCourses}
-              </span>
+              <span className="text-2xl font-bold text-gray-900">{completedCourses}</span>
             </div>
             <h3 className="text-gray-600 font-medium">Completed</h3>
           </div>
@@ -82,7 +121,7 @@ export default function Dashboard({ user }: DashboardProps) {
                 <Clock className="h-6 w-6 text-orange-600" />
               </div>
               <span className="text-2xl font-bold text-gray-900">
-                {totalProgress.toFixed(0)}%
+                {Number.isFinite(totalProgress) ? totalProgress.toFixed(0) : "0"}%
               </span>
             </div>
             <h3 className="text-gray-600 font-medium">Overall Progress</h3>
@@ -91,7 +130,7 @@ export default function Dashboard({ user }: DashboardProps) {
 
         {/* Search & Filter */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="relative flex-1 max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
               <input
@@ -103,7 +142,7 @@ export default function Dashboard({ user }: DashboardProps) {
               />
             </div>
 
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center gap-3">
               <Filter className="h-5 w-5 text-gray-400" />
               <select
                 value={selectedLevel}
@@ -119,11 +158,9 @@ export default function Dashboard({ user }: DashboardProps) {
           </div>
         </div>
 
-        {/* Course Catalog */}
+        {/* Catalog */}
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">
-            Course Catalog
-          </h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">Course Catalog</h2>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredCourses.map((course) => (
@@ -135,7 +172,6 @@ export default function Dashboard({ user }: DashboardProps) {
             ))}
           </div>
         </div>
-
       </div>
     </div>
   );

@@ -3,11 +3,86 @@
 @tailwind utilities;
 
 /* Google Font Integration */
-@import url('https://fonts.googleapis.com/css2?family=Science+Gothic:wght@100..900&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Science+Gothic:wght@100..900&display=swap");
 
 /* Custom Tailwind class for Science Gothic */
 .font-ssu {
-  font-family: 'Science Gothic', sans-serif;
-  font-weight: 700; /* adjust weight as needed */
+  font-family: "Science Gothic", sans-serif;
+  font-weight: 800;
   font-style: normal;
+}
+
+/* -----------------------
+   Base polish + premium background
+------------------------ */
+html,
+body {
+  height: 100%;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  /* off-white premium background */
+  background: radial-gradient(1200px 700px at 20% 0%, rgba(239, 68, 68, 0.08), transparent 55%),
+    radial-gradient(900px 600px at 80% 10%, rgba(0, 0, 0, 0.06), transparent 55%),
+    linear-gradient(to bottom, #f7f8fb, #f3f4f6);
+  color: #0f172a;
+}
+
+/* selection */
+::selection {
+  background: rgba(239, 68, 68, 0.22);
+}
+
+/* nicer focus */
+:focus-visible {
+  outline: 3px solid rgba(239, 68, 68, 0.35);
+  outline-offset: 2px;
+  border-radius: 12px;
+}
+
+/* -----------------------
+   Utilities for landing
+------------------------ */
+.ssu-container {
+  @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+}
+
+/* subtle dotted grid overlay */
+.ssu-grid {
+  background-image: radial-gradient(rgba(2, 6, 23, 0.12) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+/* subtle noise overlay */
+.ssu-noise {
+  position: relative;
+}
+.ssu-noise::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='190' height='190'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='190' height='190' filter='url(%23n)' opacity='.35'/%3E%3C/svg%3E");
+  border-radius: inherit;
+}
+
+/* premium card feel */
+.ssu-card {
+  @apply rounded-3xl border border-black/10 bg-white/70 backdrop-blur-xl shadow-[0_20px_60px_rgba(2,6,23,0.08)];
+}
+
+/* section separator line */
+.ssu-divider {
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgba(2, 6, 23, 0.10), transparent);
+}
+
+/* small text balance */
+p {
+  line-height: 1.7;
 }

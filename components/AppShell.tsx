@@ -1,60 +1,42 @@
 "use client";
 
-import React, { useState } from "react";
-import Navbar from "./Navbar";
-import Footer from "./Footer";
+import { useEffect, useState } from "react";
 import AuthModal from "./AuthModal";
-import { useAuth } from "../contexts/AuthContext";
 import type { User } from "../types";
+import { useAuth } from "../contexts/AuthContext";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
-  const { currentUser, logout, setCurrentUser } = useAuth();
+  const { setCurrentUser } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"login" | "signup">("login");
 
-  const [showAuth, setShowAuth] = useState(false);
-  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ev = e as CustomEvent<{ mode: "login" | "signup" }>;
+      setMode(ev.detail?.mode ?? "login");
+      setOpen(true);
+    };
 
-  const handleShowLogin = () => {
-    setAuthMode("login");
-    setShowAuth(true);
-  };
+    window.addEventListener("ssu:open-auth", handler as EventListener);
+    return () => window.removeEventListener("ssu:open-auth", handler as EventListener);
+  }, []);
 
-  const handleShowSignup = () => {
-    setAuthMode("signup");
-    setShowAuth(true);
-  };
-
-  const handleSwitchMode = () => {
-    setAuthMode((prev) => (prev === "login" ? "signup" : "login"));
-  };
-
-  const handleAuthSuccess = (user: User) => {
+  const onSuccess = (user: User) => {
     setCurrentUser(user);
-    setShowAuth(false);
+    setOpen(false);
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
-      <Navbar
-        isLoggedIn={!!currentUser}
-        userName={currentUser?.name || currentUser?.email}
-        onLogout={logout}
-        onShowLogin={handleShowLogin}
-        onShowSignup={handleShowSignup}
-      />
-
-      {/* Page content */}
-      <main className="flex-1">{children}</main>
-
-      <Footer />
-
-      {showAuth && (
+    <>
+      {children}
+      {open && (
         <AuthModal
-          mode={authMode}
-          onClose={() => setShowAuth(false)}
-          onSuccess={handleAuthSuccess}
-          onSwitchMode={handleSwitchMode}
+          mode={mode}
+          onClose={() => setOpen(false)}
+          onSuccess={onSuccess}
+          onSwitchMode={() => setMode((m) => (m === "login" ? "signup" : "login"))}
         />
       )}
-    </div>
+    </>
   );
 }

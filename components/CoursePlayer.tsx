@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { Module, Lesson, VideoSource } from "../types";
+import type { Lesson, Module, VideoSource } from "../types";
 import {
   ArrowLeft,
   ArrowRight,
@@ -18,9 +18,15 @@ import {
   Maximize,
   RotateCcw,
   RotateCw,
-  Lock,
   AlertTriangle,
 } from "lucide-react";
+
+import { useAuth } from "../contexts/AuthContext";
+import {
+  loadProgressMap,
+  markLessonCompleteForUser,
+  resolveVideoUrl,
+} from "../lib/storage";
 
 /* =========================
    Helpers
@@ -56,44 +62,60 @@ function formatTime(sec: number) {
 export default function CoursePlayer({
   courseId,
   modules,
+  userId: userIdProp,
 }: {
   courseId: string;
   modules: Module[];
+  userId?: string; // ✅ allow passing directly
 }) {
+  const { currentUser, ready } = useAuth();
+
+  // ✅ Single source of truth (prefer prop if passed)
+  const userId = userIdProp || currentUser?.id || "";
+
   const flat = useMemo(() => flatten(modules), [modules]);
 
   const storageActive = `course:${courseId}:activeLessonId`;
-  const storageDone = `course:${courseId}:completedMap`;
   const storageQuiz = (lessonId: string) => `course:${courseId}:quiz:${lessonId}`;
 
   const [activeLessonId, setActiveLessonId] = useState<string>(() => flat[0]?.lesson.id ?? "");
   const [completedMap, setCompletedMap] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState<string>("");
 
-  // Load saved state
+  // ✅ If modules loaded later and activeLessonId empty, set first lesson
   useEffect(() => {
+    if (!activeLessonId && flat[0]?.lesson?.id) setActiveLessonId(flat[0].lesson.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flat.length]);
+
+  // Load saved state (per-user progress)
+  useEffect(() => {
+    if (!userId) {
+      setCompletedMap({});
+      return;
+    }
+
     try {
       const savedActive = localStorage.getItem(storageActive);
       if (savedActive) setActiveLessonId(savedActive);
 
-      const savedDone = localStorage.getItem(storageDone);
-      if (savedDone) setCompletedMap(JSON.parse(savedDone));
+      const map = loadProgressMap(userId);
+      const p = map[courseId];
+      const doneIds = p?.completedLessonIds ?? [];
+      const next: Record<string, boolean> = {};
+      doneIds.forEach((id) => (next[id] = true));
+      setCompletedMap(next);
     } catch {
       setCompletedMap({});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [userId, courseId]);
 
   // Save active lesson
   useEffect(() => {
     if (!activeLessonId) return;
     localStorage.setItem(storageActive, activeLessonId);
   }, [activeLessonId, storageActive]);
-
-  // Save completion map
-  useEffect(() => {
-    localStorage.setItem(storageDone, JSON.stringify(completedMap));
-  }, [completedMap, storageDone]);
 
   const activeLesson = useMemo(() => {
     return flat.find((x) => x.lesson.id === activeLessonId)?.lesson ?? flat[0]?.lesson;
@@ -119,18 +141,27 @@ export default function CoursePlayer({
     [flat, completedMap]
   );
 
-  function markComplete(id: string) {
+  function setDoneLocal(id: string) {
     setCompletedMap((p) => ({ ...p, [id]: true }));
+  }
+
+  function markComplete(id: string, finalScore?: number) {
+    // ✅ wait for auth check if not ready
+    if (!ready) {
+      setToast("Checking login...");
+      return;
+    }
+    if (!userId) {
+      setToast("Please login first.");
+      return;
+    }
+    setDoneLocal(id);
+    markLessonCompleteForUser({ userId, courseId, lessonId: id, finalScore });
   }
 
   function next() {
     if (activeIndex < 0 || activeIndex >= flat.length - 1) return;
-    const nextLessonId = flat[activeIndex + 1].lesson.id;
-    if (isLessonLocked(nextLessonId)) {
-      setToast("Final Assessment locked — complete all previous lessons first.");
-      return;
-    }
-    setActiveLessonId(nextLessonId);
+    setActiveLessonId(flat[activeIndex + 1].lesson.id);
   }
 
   function prev() {
@@ -140,41 +171,12 @@ export default function CoursePlayer({
 
   const isActiveDone = !!(activeLesson && completedMap[activeLesson.id]);
 
-  /* =========================
-     Final Assessment Gate
-  ========================= */
-
-  function isLessonLocked(lessonId: string) {
-    const idx = flat.findIndex((x) => x.lesson.id === lessonId);
-    if (idx < 0) return false;
-
-    const lesson = flat[idx].lesson as any;
-    const requiresAll = !!lesson?.gate?.requiresAllPreviousLessons || !!lesson?.isFinalAssessment;
-    if (!requiresAll) return false;
-
-    // must complete ALL lessons before it (flat order)
-    for (let i = 0; i < idx; i++) {
-      if (!completedMap[flat[i].lesson.id]) return true;
-    }
+  /** ✅ NO LOCKS ANYMORE */
+  function isLessonLocked(_lessonId: string) {
     return false;
   }
 
-  const activeLocked = activeLesson ? isLessonLocked(activeLesson.id) : false;
-
-  const remainingBeforeActive = useMemo(() => {
-    if (!activeLesson) return 0;
-    const idx = flat.findIndex((x) => x.lesson.id === activeLesson.id);
-    if (idx <= 0) return 0;
-    let remain = 0;
-    for (let i = 0; i < idx; i++) if (!completedMap[flat[i].lesson.id]) remain++;
-    return remain;
-  }, [activeLesson, flat, completedMap]);
-
   function tryOpenLesson(lessonId: string) {
-    if (isLessonLocked(lessonId)) {
-      setToast("Final Assessment locked — complete all previous lessons first.");
-      return;
-    }
     setActiveLessonId(lessonId);
   }
 
@@ -199,7 +201,7 @@ export default function CoursePlayer({
       ) : null}
 
       <div className="grid grid-cols-12 gap-6">
-        {/* ===================== Sidebar ===================== */}
+        {/* Sidebar */}
         <aside className="col-span-12 lg:col-span-4 xl:col-span-3">
           <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
             <div className="p-4 border-b border-gray-200">
@@ -239,17 +241,14 @@ export default function CoursePlayer({
                     {m.lessons.map((l) => {
                       const isActive = l.id === activeLessonId;
                       const isDone = !!completedMap[l.id];
-                      const locked = isLessonLocked(l.id);
 
                       return (
                         <li key={l.id}>
                           <button
                             onClick={() => tryOpenLesson(l.id)}
-                            disabled={locked}
                             className={[
                               "w-full text-left rounded-xl px-3 py-2 transition border",
                               "flex items-center justify-between gap-3",
-                              locked ? "opacity-60 cursor-not-allowed" : "",
                               isActive
                                 ? "bg-gray-900 text-white border-gray-900 shadow-sm"
                                 : "bg-white hover:bg-gray-50 border-gray-200",
@@ -282,20 +281,6 @@ export default function CoursePlayer({
                                     <span>Reading</span>
                                   </>
                                 )}
-
-                                {locked ? (
-                                  <span
-                                    className={[
-                                      "ml-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5",
-                                      isActive
-                                        ? "border-white/20 bg-white/10 text-white"
-                                        : "border-gray-200 bg-gray-50 text-gray-700",
-                                    ].join(" ")}
-                                  >
-                                    <Lock className="h-3 w-3" />
-                                    Locked
-                                  </span>
-                                ) : null}
                               </div>
                             </div>
 
@@ -342,7 +327,7 @@ export default function CoursePlayer({
           </div>
         </aside>
 
-        {/* ===================== Main ===================== */}
+        {/* Main */}
         <main className="col-span-12 lg:col-span-8 xl:col-span-9 space-y-4">
           {/* Header */}
           <div className="sticky top-3 z-10">
@@ -364,11 +349,7 @@ export default function CoursePlayer({
                       </span>
                     ) : null}
 
-                    {activeLocked ? (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs font-semibold text-gray-900">
-                        <Lock className="h-3.5 w-3.5" /> Locked
-                      </span>
-                    ) : isActiveDone ? (
+                    {isActiveDone ? (
                       <span className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-3 py-1 text-xs font-semibold text-green-700">
                         <CheckCircle2 className="h-3.5 w-3.5" /> Completed
                       </span>
@@ -392,8 +373,8 @@ export default function CoursePlayer({
                   </button>
 
                   <button
-                    onClick={() => activeLesson && !activeLocked && markComplete(activeLesson.id)}
-                    disabled={!activeLesson || isActiveDone || activeLocked}
+                    onClick={() => activeLesson && !isLessonLocked(activeLesson.id) && markComplete(activeLesson.id)}
+                    disabled={!activeLesson || isActiveDone}
                     className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white
                                hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed"
                   >
@@ -420,22 +401,13 @@ export default function CoursePlayer({
             <div className="p-4 md:p-6">
               {!activeLesson ? (
                 <div className="text-sm text-gray-600">No lesson found.</div>
-              ) : activeLocked ? (
-                <LockedPanel remaining={remainingBeforeActive} />
               ) : (activeLesson as any).type === "video" ? (
-                <VideoPlayer
-                  source={
-                    (activeLesson as any).video ??
-                    ((activeLesson as any).url
-                      ? ({ kind: "mp4", url: (activeLesson as any).url } as VideoSource)
-                      : undefined)
-                  }
-                />
+                <VideoPlayer source={(activeLesson as any).video as VideoSource | undefined} />
               ) : (activeLesson as any).type === "quiz" ? (
                 <QuizRenderer
                   lesson={activeLesson as any}
                   storageKey={storageQuiz(activeLesson.id)}
-                  onPass={() => markComplete(activeLesson.id)}
+                  onPass={(pct) => markComplete(activeLesson.id, pct)}
                   isCompleted={!!completedMap[activeLesson.id]}
                 />
               ) : (
@@ -450,39 +422,8 @@ export default function CoursePlayer({
 }
 
 /* =========================
-   Locked Panel
+   Reading Renderer
 ========================= */
-
-function LockedPanel({ remaining }: { remaining: number }) {
-  return (
-    <div className="mx-auto w-full max-w-3xl">
-      <div className="rounded-2xl border border-gray-200 bg-gray-50 p-6">
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 rounded-xl bg-white p-2 border border-gray-200">
-            <Lock className="h-5 w-5 text-gray-900" />
-          </div>
-          <div>
-            <div className="text-lg font-extrabold text-gray-900">Final Assessment Locked</div>
-            <p className="mt-1 text-sm text-gray-600 leading-6">
-              Pehle saare previous lessons complete karo. Remaining lessons:
-              <span className="ml-2 inline-flex items-center rounded-full bg-white border border-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-900">
-                {remaining}
-              </span>
-            </p>
-            <div className="mt-4 text-sm text-gray-600">
-              Tip: Sidebar se next incomplete lesson open karke <b>Mark Complete</b> karte jao.
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* =========================
-   Reading Renderer (tight)
-========================= */
-
 function ReadingRenderer({ content }: { content: string }) {
   const text = (content || "").trim();
 
@@ -490,77 +431,7 @@ function ReadingRenderer({ content }: { content: string }) {
     <div className="mx-auto w-full max-w-3xl">
       <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
         <div className="px-5 py-6 sm:px-8 sm:py-8">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={{
-              h1: ({ children }) => (
-                <h2 className="text-2xl font-extrabold tracking-tight text-gray-900 mt-0 mb-3">
-                  {children}
-                </h2>
-              ),
-              h2: ({ children }) => (
-                <h3 className="text-xl font-bold tracking-tight text-gray-900 mt-8 mb-2">
-                  {children}
-                </h3>
-              ),
-              h3: ({ children }) => (
-                <h4 className="text-lg font-semibold text-gray-900 mt-6 mb-2">
-                  {children}
-                </h4>
-              ),
-              p: ({ children }) => (
-                <p className="text-[15px] leading-7 text-gray-700 my-2">{children}</p>
-              ),
-              strong: ({ children }) => (
-                <strong className="font-semibold text-gray-900">{children}</strong>
-              ),
-              ul: ({ children }) => <ul className="my-2 list-disc pl-6 space-y-1">{children}</ul>,
-              ol: ({ children }) => <ol className="my-2 list-decimal pl-6 space-y-1">{children}</ol>,
-              li: ({ children }) => (
-                <li className="text-[15px] leading-7 text-gray-700">{children}</li>
-              ),
-              a: ({ children, href }) => (
-                <a
-                  href={href}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-blue-700 font-medium hover:underline"
-                >
-                  {children}
-                </a>
-              ),
-              blockquote: ({ children }) => (
-                <div className="my-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                  <div className="text-gray-700 text-[15px] leading-7">{children}</div>
-                </div>
-              ),
-              hr: () => <hr className="my-8 border-gray-200" />,
-
-              table: ({ children }) => (
-                <div className="my-4 w-full overflow-x-auto rounded-xl border border-gray-200">
-                  <table className="w-full border-collapse text-sm">{children}</table>
-                </div>
-              ),
-              thead: ({ children }) => <thead className="bg-gray-50">{children}</thead>,
-              th: ({ children }) => (
-                <th className="border-b border-gray-200 px-3 py-2 text-left font-semibold text-gray-900">
-                  {children}
-                </th>
-              ),
-              td: ({ children }) => (
-                <td className="border-b border-gray-100 px-3 py-2 align-top text-gray-700">
-                  {children}
-                </td>
-              ),
-              code: ({ children }) => (
-                <code className="rounded bg-gray-100 px-1 py-0.5 text-[13px] text-gray-900">
-                  {children}
-                </code>
-              ),
-            }}
-          >
-            {text}
-          </ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
         </div>
       </div>
     </div>
@@ -570,7 +441,6 @@ function ReadingRenderer({ content }: { content: string }) {
 /* =========================
    Quiz Renderer
 ========================= */
-
 function QuizRenderer({
   lesson,
   storageKey,
@@ -579,11 +449,11 @@ function QuizRenderer({
 }: {
   lesson: any;
   storageKey: string;
-  onPass: () => void;
+  onPass: (scorePct: number) => void;
   isCompleted: boolean;
 }) {
   const quiz = lesson?.quiz;
-  const passing = Number(quiz?.passingPercent ?? 70);
+  const passing = Number(quiz?.passingPercent ?? 50);
 
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(false);
@@ -621,7 +491,7 @@ function QuizRenderer({
     setScorePct(pct);
     setSubmitted(true);
 
-    if (pct >= passing) onPass();
+    if (pct >= passing) onPass(pct);
   }
 
   const passed = submitted && scorePct >= passing;
@@ -629,10 +499,10 @@ function QuizRenderer({
   return (
     <div className="mx-auto w-full max-w-3xl">
       <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-        <div className="p-5 sm:p-7 border-b border-gray-200">
+        <div className="p-5 border-b border-gray-200">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-semibold text-gray-500">Final Assessment</div>
+              <div className="text-sm font-semibold text-gray-500">Assessment</div>
               <div className="text-xl font-extrabold text-gray-900 mt-1">{toPlainTitle(lesson.title)}</div>
             </div>
 
@@ -660,7 +530,7 @@ function QuizRenderer({
           {isCompleted ? <div className="mt-3 text-sm text-gray-600">✅ This assessment is marked as completed.</div> : null}
         </div>
 
-        <div className="p-5 sm:p-7 space-y-6">
+        <div className="p-5 space-y-6">
           {questions.length === 0 ? (
             <div className="text-sm text-gray-600">No questions found in this quiz.</div>
           ) : (
@@ -726,19 +596,66 @@ function QuizRenderer({
 }
 
 /* =========================
-   Video Player
+   Video Player (mp4/youtube/idb)
 ========================= */
 
 function VideoPlayer({ source }: { source?: VideoSource }) {
+  const [mode, setMode] = useState<"loading" | "iframe" | "mp4" | "error">("loading");
+  const [url, setUrl] = useState<string>("");
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!source) {
+        setMode("error");
+        return;
+      }
+      try {
+        const resolved = await resolveVideoUrl(source);
+        if (!mounted) return;
+
+        if (source.kind === "youtube") {
+          setUrl(resolved);
+          setMode("iframe");
+        } else {
+          setUrl(resolved);
+          setMode("mp4");
+        }
+      } catch {
+        if (!mounted) return;
+        setMode("error");
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [source]);
+
   if (!source) {
     return (
       <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-        Video URL missing for this lesson.
+        Video source missing for this lesson.
       </div>
     );
   }
 
-  if (source.kind === "youtube") {
+  if (mode === "loading") {
+    return (
+      <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+        Loading video...
+      </div>
+    );
+  }
+
+  if (mode === "error") {
+    return (
+      <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        Video load failed. (If using uploaded video, ensure it exists in this browser.)
+      </div>
+    );
+  }
+
+  if (mode === "iframe") {
     return (
       <div className="overflow-hidden rounded-2xl border border-gray-200 bg-black shadow-sm">
         <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
@@ -748,7 +665,7 @@ function VideoPlayer({ source }: { source?: VideoSource }) {
         <div className="aspect-video w-full">
           <iframe
             className="h-full w-full"
-            src={`https://www.youtube.com/embed/${source.id}?rel=0&modestbranding=1`}
+            src={url}
             title="YouTube video"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowFullScreen
@@ -758,27 +675,7 @@ function VideoPlayer({ source }: { source?: VideoSource }) {
     );
   }
 
-  if (source.kind === "vimeo") {
-    return (
-      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-black shadow-sm">
-        <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
-          <div className="text-sm font-semibold text-white">Video Lesson</div>
-          <div className="text-xs text-white/70">SSU Academy</div>
-        </div>
-        <div className="aspect-video w-full">
-          <iframe
-            className="h-full w-full"
-            src={`https://player.vimeo.com/video/${source.id}`}
-            title="Vimeo video"
-            allow="autoplay; fullscreen; picture-in-picture"
-            allowFullScreen
-          />
-        </div>
-      </div>
-    );
-  }
-
-  return <EnhancedMp4Player url={source.url} />;
+  return <EnhancedMp4Player url={url} />;
 }
 
 function EnhancedMp4Player({ url }: { url: string }) {
@@ -875,7 +772,6 @@ function EnhancedMp4Player({ url }: { url: string }) {
       </div>
 
       <div className="relative">
-        {/* Logo watermark */}
         <div className="pointer-events-none absolute right-3 top-3 z-20 opacity-70 drop-shadow-md">
           <Image src="/assets/logo.svg" alt="SSU Academy" width={64} height={64} className="select-none" />
         </div>

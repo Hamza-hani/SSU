@@ -1,3 +1,4 @@
+// data/courses.ts
 import type { Course, Module, Lesson } from "../types";
 
 /* =========================
@@ -17,7 +18,7 @@ function appendFinalAssessment(courseId: string, courseTitle: string, modules: M
           type: "quiz",
           completed: false,
           isFinalAssessment: true,
-          gate: { requiresAllPreviousLessons: true }, // ✅ locked until all previous lessons done
+          gate: { requiresAllPreviousLessons: true },
           quiz: {
             passingPercent: 70,
             shuffleQuestions: true,
@@ -120,7 +121,6 @@ function generateModules(courseId: string, courseTitle: string, count: number): 
     };
   });
 
-  // ✅ Add locked final assessment at end
   return appendFinalAssessment(courseId, courseTitle, modules);
 }
 
@@ -170,7 +170,6 @@ Damage/disruption can cause:
 ### Field mindset (SSU)
 **Identify → Assess → Prioritize → Protect**
 `.trim(),
-
     `
 # Module 2 — Categories of Vital Infrastructure (11.3)
 
@@ -190,7 +189,6 @@ One category failing can **cascade** into others (e.g., power failure → teleco
 
 ✅ **Task:** In your city/area, list **2 examples per category**.
 `.trim(),
-
     `
 # Module 3 — Identifying Critical Infrastructure & Components (11.4)
 
@@ -212,7 +210,6 @@ One category failing can **cascade** into others (e.g., power failure → teleco
 - Dependency notes
 - Risk notes (physical / cyber / natural)
 `.trim(),
-
     `
 # Module 4 — Methods of Identification (11.5)
 
@@ -241,7 +238,6 @@ Look for:
 - 3 OSINT sources
 - 2 likely entry points
 `.trim(),
-
     `
 # Module 5 — Threat Matrix & Vulnerability Assessment (11.6)
 
@@ -270,7 +266,6 @@ Maps **Threat type → Likelihood → Impact** to prioritize protection.
 - Risk rating:
 - Recommended measures:
 `.trim(),
-
     `
 # Module 6 — Infrastructure Mapping Techniques (11.7)
 
@@ -292,7 +287,6 @@ Shows:
 - Crowd hotspots
 - Nearby medical facility
 `.trim(),
-
     `
 # Module 7 — CIPI + Prioritization + ATA Program (11.8–11.9)
 
@@ -313,7 +307,6 @@ Ranks assets by importance to:
 - Water plant
 - Local police station
 `.trim(),
-
     `
 # Module 8 — Technological Tools + Challenges (11.10–11.11)
 
@@ -372,7 +365,6 @@ Ranks assets by importance to:
     };
   });
 
-  // ✅ Add locked final assessment at end
   return appendFinalAssessment(courseId, courseTitle, modules);
 }
 
@@ -392,6 +384,7 @@ export const courses: Course[] = [
     modules: 8,
     progress: 0,
     modulesList: generateVitalInfrastructureModules("identify-vital-infrastructure", "Identify Vital Infrastructure"),
+    prerequisites: [], // ✅ first course open
   },
 
   {
@@ -404,6 +397,7 @@ export const courses: Course[] = [
     modules: 12,
     progress: 0,
     modulesList: generateModules("motorcade-planning", "Motorcade Planning & Execution", 12),
+    prerequisites: ["identify-vital-infrastructure"],
   },
   {
     id: "attack-on-motorcade",
@@ -415,6 +409,7 @@ export const courses: Course[] = [
     modules: 10,
     progress: 10,
     modulesList: generateModules("attack-on-motorcade", "Attack on Motorcade Countermeasures", 10),
+    prerequisites: ["motorcade-planning"],
   },
   {
     id: "rings-of-security",
@@ -426,6 +421,7 @@ export const courses: Course[] = [
     modules: 9,
     progress: 0,
     modulesList: generateModules("rings-of-security", "Rings of Security", 9),
+    prerequisites: ["attack-on-motorcade"],
   },
   {
     id: "weapons-basic-advanced",
@@ -437,6 +433,7 @@ export const courses: Course[] = [
     modules: 15,
     progress: 0,
     modulesList: generateModules("weapons-basic-advanced", "Weapons Basic and Advance", 15),
+    prerequisites: ["rings-of-security"],
   },
   {
     id: "introduction-to-pistol",
@@ -448,6 +445,7 @@ export const courses: Course[] = [
     modules: 6,
     progress: 0,
     modulesList: generateModules("introduction-to-pistol", "Introduction to Pistol", 6),
+    prerequisites: ["weapons-basic-advanced"],
   },
   {
     id: "pistol-techniques-live-fire",
@@ -459,6 +457,7 @@ export const courses: Course[] = [
     modules: 8,
     progress: 0,
     modulesList: generateModules("pistol-techniques-live-fire", "Pistol Techniques Live Fire", 8),
+    prerequisites: ["introduction-to-pistol"],
   },
   {
     id: "shoulder-weapon-intro",
@@ -470,17 +469,19 @@ export const courses: Course[] = [
     modules: 7,
     progress: 0,
     modulesList: generateModules("shoulder-weapon-intro", "Introduction to Shoulder Weapon", 7),
+    prerequisites: ["pistol-techniques-live-fire"],
   },
   {
     id: "shoulder-weapon-live-fire",
     title: "Shoulder Weapon Technique Live Fire",
     description: "Advanced live-fire shoulder weapon techniques in dynamic scenarios.",
     level: "Advanced",
-    category: "FIREARMS", // ✅ fixed typo
+    category: "FIREARMS",
     duration: "5 weeks",
     modules: 9,
     progress: 0,
     modulesList: generateModules("shoulder-weapon-live-fire", "Shoulder Weapon Technique Live Fire", 9),
+    prerequisites: ["shoulder-weapon-intro"],
   },
   {
     id: "attack-on-principal",
@@ -492,6 +493,7 @@ export const courses: Course[] = [
     modules: 11,
     progress: 0,
     modulesList: generateModules("attack-on-principal", "Attack on Principal Response Protocol", 11),
+    prerequisites: ["shoulder-weapon-live-fire"],
   },
   {
     id: "blue-book-security",
@@ -503,6 +505,7 @@ export const courses: Course[] = [
     modules: 10,
     progress: 0,
     modulesList: generateModules("blue-book-security", "Blue Book Venue Security Assessment", 10),
+    prerequisites: ["attack-on-principal"],
   },
   {
     id: "tactical-radio",
@@ -514,6 +517,7 @@ export const courses: Course[] = [
     modules: 6,
     progress: 0,
     modulesList: generateModules("tactical-radio", "Tactical Radio Communication", 6),
+    prerequisites: ["blue-book-security"],
   },
   {
     id: "psd-organisation",
@@ -525,6 +529,7 @@ export const courses: Course[] = [
     modules: 9,
     progress: 0,
     modulesList: generateModules("psd-organisation", "Organisation of PSD", 9),
+    prerequisites: ["tactical-radio"],
   },
   {
     id: "ied-search",
@@ -536,6 +541,7 @@ export const courses: Course[] = [
     modules: 8,
     progress: 0,
     modulesList: generateModules("ied-search", "Vehicle Building Search for IED", 8),
+    prerequisites: ["psd-organisation"],
   },
   {
     id: "advanced-motor-driving",
@@ -547,6 +553,7 @@ export const courses: Course[] = [
     modules: 12,
     progress: 0,
     modulesList: generateModules("advanced-motor-driving", "Advanced Motor Driving", 12),
+    prerequisites: ["ied-search"],
   },
   {
     id: "martial-art-close-protection",
@@ -558,6 +565,7 @@ export const courses: Course[] = [
     modules: 14,
     progress: 0,
     modulesList: generateModules("martial-art-close-protection", "Martial Art Close Protection", 14),
+    prerequisites: ["advanced-motor-driving"],
   },
   {
     id: "cybersecurity-protective",
@@ -569,5 +577,6 @@ export const courses: Course[] = [
     modules: 10,
     progress: 0,
     modulesList: generateModules("cybersecurity-protective", "Cybersecurity for Protective Professionals", 10),
+    prerequisites: ["martial-art-close-protection"],
   },
 ];

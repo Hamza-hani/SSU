@@ -1,49 +1,72 @@
-'use client';
+"use client";
 
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { User } from "../types";
 
 type AuthContextValue = {
   currentUser: User | null;
-  setCurrentUser: (u: User | null) => void;
-  logout: () => void;
+  ready: boolean; // ✅ auth check finished
+  setCurrentUser: React.Dispatch<React.SetStateAction<User | null>>;
+  refreshMe: () => Promise<void>;
+  logout: () => Promise<void>;
 };
 
-const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+const AuthContext = createContext<AuthContextValue | null>(null);
 
-const STORAGE_KEY = "ssu_academy_user";
+const LS_CURRENT_USER = "ssu:currentUser";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [currentUser, setCurrentUserState] = useState<User | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [ready, setReady] = useState(false);
 
-  useEffect(() => {
+  const refreshMe = async () => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setCurrentUserState(JSON.parse(raw));
+      const res = await fetch("/api/auth/me", { credentials: "include" });
+      const data = await res.json();
+      setCurrentUser(data?.user ?? null);
     } catch {
-      // ignore
-    }
-  }, []);
-
-  const setCurrentUser = (u: User | null) => {
-    setCurrentUserState(u);
-    try {
-      if (!u) localStorage.removeItem(STORAGE_KEY);
-      else localStorage.setItem(STORAGE_KEY, JSON.stringify(u));
-    } catch {
-      // ignore
+      setCurrentUser(null);
+    } finally {
+      setReady(true);
     }
   };
 
-  const logout = () => setCurrentUser(null);
+  const logout = async () => {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+    } finally {
+      setCurrentUser(null);
+      setReady(true);
+    }
+  };
 
-  const value = useMemo(() => ({ currentUser, setCurrentUser, logout }), [currentUser]);
+  // ✅ Keep localStorage in sync for components still using lib/storage.getCurrentUser()
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      if (currentUser) localStorage.setItem(LS_CURRENT_USER, JSON.stringify(currentUser));
+      else localStorage.removeItem(LS_CURRENT_USER);
+    } catch {}
+  }, [currentUser]);
+
+  useEffect(() => {
+    refreshMe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const value = useMemo(
+    () => ({ currentUser, ready, setCurrentUser, refreshMe, logout }),
+    [currentUser, ready]
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
+  if (!ctx) throw new Error("useAuth must be used within <AuthProvider />");
   return ctx;
 }
