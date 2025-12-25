@@ -56,7 +56,7 @@ function emit(name: string) {
 }
 
 /** =========================
- *  USERS
+ *  USERS (local-only in this build)
  ========================= */
 export function loadUsers(): User[] {
   if (!isBrowser) return [];
@@ -92,32 +92,88 @@ export function getCurrentUser(): User | null {
 
 /** =========================
  *  COURSES
+ *  - Local cache in LS
+ *  - Sync from DB via /api/courses
  ========================= */
 export function normalizeCourses(raw: Course[]): Course[] {
   return (raw || []).map((c) => ({
     ...c,
     modulesList: Array.isArray(c.modulesList) ? c.modulesList : [],
-    modules: typeof c.modules === "number" ? c.modules : c.modulesList?.length || 0,
+    modules:
+      typeof c.modules === "number"
+        ? c.modules
+        : (c.modulesList?.length || 0),
     progress: typeof c.progress === "number" ? c.progress : 0,
   }));
 }
 
-export function loadCourses(): Course[] {
-  if (!isBrowser) return seedCourses as Course[];
+/** seed LS once (client) */
+function ensureLocalCoursesSeeded() {
+  if (!isBrowser) return;
+  const stored = safeParse<Course[] | null>(
+    localStorage.getItem(LS_COURSES),
+    null
+  );
+  if (stored && Array.isArray(stored) && stored.length) return;
 
-  const stored = safeParse<Course[] | null>(localStorage.getItem(LS_COURSES), null);
-  if (stored && Array.isArray(stored) && stored.length) return normalizeCourses(stored);
-
-  // seed once
   localStorage.setItem(LS_COURSES, JSON.stringify(seedCourses));
   emit(EVENTS.COURSES_UPDATED);
+}
+
+/** local read (fast) */
+export function loadCourses(): Course[] {
+  if (!isBrowser) return normalizeCourses(seedCourses as Course[]);
+  ensureLocalCoursesSeeded();
+
+  const stored = safeParse<Course[] | null>(
+    localStorage.getItem(LS_COURSES),
+    null
+  );
+  if (stored && Array.isArray(stored) && stored.length)
+    return normalizeCourses(stored);
+
   return normalizeCourses(seedCourses as Course[]);
 }
 
+/** local write (cache) */
 export function saveCourses(courses: Course[]) {
   if (!isBrowser) return;
   localStorage.setItem(LS_COURSES, JSON.stringify(normalizeCourses(courses)));
   emit(EVENTS.COURSES_UPDATED);
+}
+
+/** ✅ Pull latest courses from server DB and cache in LS */
+export async function syncCoursesFromServer(): Promise<Course[]> {
+  try {
+    const res = await fetch("/api/courses", { cache: "no-store" });
+    const data = await res.json();
+    if (data?.ok && Array.isArray(data?.courses)) {
+      const normalized = normalizeCourses(data.courses);
+      saveCourses(normalized); // emits event
+      return normalized;
+    }
+  } catch {
+    // ignore
+  }
+  return loadCourses();
+}
+
+/** ✅ Save courses to server DB (admin only) then cache */
+export async function saveCoursesRemote(courses: Course[]): Promise<void> {
+  const normalized = normalizeCourses(courses);
+
+  const res = await fetch("/api/courses", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ courses: normalized }),
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data?.ok) {
+    throw new Error(data?.message || "Failed to save courses");
+  }
+
+  saveCourses(normalized); // cache + event
 }
 
 /** =========================
@@ -125,7 +181,10 @@ export function saveCourses(courses: Course[]) {
  ========================= */
 export function loadProgressMap(userId: string): ProgressMap {
   if (!isBrowser) return {};
-  return safeParse<ProgressMap>(localStorage.getItem(LS_PROGRESS_PREFIX + userId), {});
+  return safeParse<ProgressMap>(
+    localStorage.getItem(LS_PROGRESS_PREFIX + userId),
+    {}
+  );
 }
 
 export function saveProgressMap(userId: string, map: ProgressMap) {
@@ -134,14 +193,21 @@ export function saveProgressMap(userId: string, map: ProgressMap) {
   emit(EVENTS.PROGRESS_UPDATED);
 }
 
-export function getCourseUserProgress(map: ProgressMap, courseId: string): UserCourseProgress {
+export function getCourseUserProgress(
+  map: ProgressMap,
+  courseId: string
+): UserCourseProgress {
   return map[courseId] ?? { completedLessonIds: [] };
 }
 
 /** derive % from completedLessonIds vs total lessons */
-export function calcCourseProgressPct(course: Course, userProgress: UserCourseProgress | undefined): number {
+export function calcCourseProgressPct(
+  course: Course,
+  userProgress: UserCourseProgress | undefined
+): number {
   const total =
-    course.modulesList?.reduce((sum, m) => sum + (m.lessons?.length || 0), 0) || 0;
+    course.modulesList?.reduce((sum, m) => sum + (m.lessons?.length || 0), 0) ||
+    0;
   if (!total) return 0;
   const done = userProgress?.completedLessonIds?.length || 0;
   return Math.max(0, Math.min(100, Math.round((done / total) * 100)));
@@ -175,7 +241,8 @@ export function markLessonCompleteForUser(params: {
   const next: UserCourseProgress = {
     ...current,
     completedLessonIds: Array.from(set),
-    finalScore: typeof finalScore === "number" ? finalScore : current.finalScore,
+    finalScore:
+      typeof finalScore === "number" ? finalScore : current.finalScore,
   };
 
   const updated: ProgressMap = { ...map, [courseId]: next };
@@ -201,7 +268,9 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
-export async function idbSaveVideo(file: File): Promise<{ key: string; filename: string }> {
+export async function idbSaveVideo(
+  file: File
+): Promise<{ key: string; filename: string }> {
   const key = `vid_${Date.now()}_${Math.random().toString(16).slice(2)}`;
   const db = await openDB();
   await new Promise<void>((resolve, reject) => {

@@ -20,10 +20,11 @@ import {
   EVENTS,
   idbSaveVideo,
   loadCourses,
-  saveCourses,
   loadUsers,
   saveUsers,
   slugifyId,
+  saveCoursesRemote,
+  syncCoursesFromServer,
 } from "../lib/storage";
 
 type Tab = "overview" | "courses" | "users";
@@ -76,7 +77,10 @@ export default function AdminPanel() {
 
   const selectedLesson = useMemo(() => {
     if (!selectedModule) return null;
-    return (selectedModule.lessons || []).find((l) => l.id === selectedLessonId) || null;
+    return (
+      (selectedModule.lessons || []).find((l) => l.id === selectedLessonId) ||
+      null
+    );
   }, [selectedModule, selectedLessonId]);
 
   // Hydrate once
@@ -86,6 +90,18 @@ export default function AdminPanel() {
 
     setUsers(u);
     setCourses(c);
+
+    // ✅ pull from DB so live becomes same for everyone
+    syncCoursesFromServer().then((fresh) => {
+      setCourses(fresh);
+      if (fresh.length) {
+        setSelectedCourseId((prev) => prev || fresh[0].id);
+        setSelectedModuleId((prev) => prev || fresh[0].modulesList?.[0]?.id || "");
+        setSelectedLessonId(
+          (prev) => prev || fresh[0].modulesList?.[0]?.lessons?.[0]?.id || ""
+        );
+      }
+    });
 
     if (c.length) {
       setSelectedCourseId((prev) => prev || c[0].id);
@@ -109,12 +125,15 @@ export default function AdminPanel() {
     (showToast as any)._t = window.setTimeout(() => setToast(""), 1800);
   };
 
-  // Manual save (commit)
-  const handleSaveChanges = () => {
-    saveCourses(courses);
-    window.dispatchEvent(new Event(EVENTS.COURSES_UPDATED));
-    setDirty(false);
-    showToast("Saved ✅");
+  // ✅ Save to DB (not only local)
+  const handleSaveChanges = async () => {
+    try {
+      await saveCoursesRemote(courses);
+      setDirty(false);
+      showToast("Saved to DB ✅");
+    } catch (e: any) {
+      showToast(e?.message || "Save failed");
+    }
   };
 
   // Draft update helpers (mark dirty)
@@ -134,28 +153,37 @@ export default function AdminPanel() {
   const updateModule = (moduleId: string, patch: Partial<Module>) => {
     if (!selectedCourse) return;
     const mods = (selectedCourse.modulesList ?? []) as Module[];
-    const nextMods = mods.map((m) => (m.id === moduleId ? ({ ...m, ...patch } as Module) : m));
+    const nextMods = mods.map((m) =>
+      m.id === moduleId ? ({ ...m, ...patch } as Module) : m
+    );
     updateCourse({ modulesList: nextMods, modules: nextMods.length });
   };
 
-  const updateLesson = (moduleId: string, lessonId: string, patch: Partial<Lesson>) => {
+  const updateLesson = (
+    moduleId: string,
+    lessonId: string,
+    patch: Partial<Lesson>
+  ) => {
     if (!selectedCourse) return;
     const mods = (selectedCourse.modulesList ?? []) as Module[];
     const nextMods = mods.map((m) => {
       if (m.id !== moduleId) return m;
       return {
         ...m,
-        lessons: (m.lessons || []).map((l) => (l.id === lessonId ? ({ ...l, ...patch } as Lesson) : l)),
+        lessons: (m.lessons || []).map((l) =>
+          l.id === lessonId ? ({ ...l, ...patch } as Lesson) : l
+        ),
       };
     });
     updateCourse({ modulesList: nextMods, modules: nextMods.length });
   };
 
-  // Users removal (fix removeUser export issue)
+  // Users removal (local only)
   const removeUserByEmail = (email: string) => {
-    const next = loadUsers().filter((u) => (u.email || "").toLowerCase() !== email.toLowerCase());
+    const next = loadUsers().filter(
+      (u) => (u.email || "").toLowerCase() !== email.toLowerCase()
+    );
     saveUsers(next);
-    window.dispatchEvent(new Event(EVENTS.USERS_UPDATED));
     showToast("User removed");
   };
 
@@ -177,6 +205,7 @@ export default function AdminPanel() {
       modules: 0,
       progress: 0,
       modulesList: [],
+      prerequisites: [],
     };
 
     const next = [newCourse, ...courses];
@@ -246,7 +275,12 @@ export default function AdminPanel() {
     const lessonNo = (mod.lessons?.length || 0) + 1;
     const base: Lesson = {
       id: uid(`${moduleId}_l${lessonNo}`),
-      title: type === "text" ? "Reading Lesson" : type === "video" ? "Video Lesson" : "Assessment Quiz",
+      title:
+        type === "text"
+          ? "Reading Lesson"
+          : type === "video"
+          ? "Video Lesson"
+          : "Assessment Quiz",
       type,
     };
 
@@ -375,9 +409,24 @@ export default function AdminPanel() {
               </p>
 
               <div className="mt-4 flex flex-wrap items-center gap-2">
-                <TopTab label="Overview" active={tab === "overview"} onClick={() => setTab("overview")} icon={<LayoutGrid className="h-4 w-4" />} />
-                <TopTab label="Courses" active={tab === "courses"} onClick={() => setTab("courses")} icon={<BookOpen className="h-4 w-4" />} />
-                <TopTab label="Users" active={tab === "users"} onClick={() => setTab("users")} icon={<Users className="h-4 w-4" />} />
+                <TopTab
+                  label="Overview"
+                  active={tab === "overview"}
+                  onClick={() => setTab("overview")}
+                  icon={<LayoutGrid className="h-4 w-4" />}
+                />
+                <TopTab
+                  label="Courses"
+                  active={tab === "courses"}
+                  onClick={() => setTab("courses")}
+                  icon={<BookOpen className="h-4 w-4" />}
+                />
+                <TopTab
+                  label="Users"
+                  active={tab === "users"}
+                  onClick={() => setTab("users")}
+                  icon={<Users className="h-4 w-4" />}
+                />
               </div>
             </div>
 
@@ -410,13 +459,22 @@ export default function AdminPanel() {
           {tab === "courses" && (
             <div className="mt-5 lg:hidden">
               <div className="inline-flex rounded-2xl border border-gray-200 bg-white p-1">
-                <MiniTab active={mobilePane === "courses"} onClick={() => setMobilePane("courses")}>
+                <MiniTab
+                  active={mobilePane === "courses"}
+                  onClick={() => setMobilePane("courses")}
+                >
                   Courses
                 </MiniTab>
-                <MiniTab active={mobilePane === "modules"} onClick={() => setMobilePane("modules")}>
+                <MiniTab
+                  active={mobilePane === "modules"}
+                  onClick={() => setMobilePane("modules")}
+                >
                   Modules
                 </MiniTab>
-                <MiniTab active={mobilePane === "lesson"} onClick={() => setMobilePane("lesson")}>
+                <MiniTab
+                  active={mobilePane === "lesson"}
+                  onClick={() => setMobilePane("lesson")}
+                >
                   Lesson
                 </MiniTab>
               </div>
@@ -433,7 +491,7 @@ export default function AdminPanel() {
             <div className="mt-6 grid md:grid-cols-3 gap-6">
               <StatCard label="Total Users" value={users.length} />
               <StatCard label="Total Courses" value={courses.length} />
-              <StatCard label="Storage" value="Local + IDB" />
+              <StatCard label="Storage" value="DB + Local Cache" />
             </div>
           </div>
         )}
@@ -456,13 +514,15 @@ export default function AdminPanel() {
                   {users.length === 0 ? (
                     <tr>
                       <td className="py-6 text-gray-600" colSpan={4}>
-                        No users yet. Sign up users will appear here.
+                        No users yet.
                       </td>
                     </tr>
                   ) : (
                     users.map((u) => (
                       <tr key={u.email} className="border-b last:border-b-0">
-                        <td className="py-4 pr-4 font-semibold text-gray-900">{u.name}</td>
+                        <td className="py-4 pr-4 font-semibold text-gray-900">
+                          {u.name}
+                        </td>
                         <td className="py-4 pr-4 text-gray-700">{u.email}</td>
                         <td className="py-4 pr-4">
                           <span className="inline-flex px-3 py-1 rounded-full bg-gray-900 text-white font-semibold">
@@ -498,7 +558,9 @@ export default function AdminPanel() {
                     setSelectedCourseId(id);
                     const c = courses.find((x) => x.id === id);
                     setSelectedModuleId(c?.modulesList?.[0]?.id || "");
-                    setSelectedLessonId(c?.modulesList?.[0]?.lessons?.[0]?.id || "");
+                    setSelectedLessonId(
+                      c?.modulesList?.[0]?.lessons?.[0]?.id || ""
+                    );
                     setMobilePane("modules");
                   }}
                   onAdd={addNewCourse}
@@ -512,7 +574,9 @@ export default function AdminPanel() {
                   selectedLessonId={selectedLessonId}
                   onSelectModule={(mid) => {
                     setSelectedModuleId(mid);
-                    const mod = (selectedCourse?.modulesList as Module[])?.find((m) => m.id === mid);
+                    const mod = (selectedCourse?.modulesList as Module[])?.find(
+                      (m) => m.id === mid
+                    );
                     setSelectedLessonId(mod?.lessons?.[0]?.id || "");
                     setMobilePane("lesson");
                   }}
@@ -522,8 +586,12 @@ export default function AdminPanel() {
                   }}
                   onAddModule={addModule}
                   onRemoveModule={removeModuleById}
-                  onAddLesson={(type) => selectedModule && addLessonToModule(selectedModule.id, type)}
-                  onRemoveLesson={(lid) => selectedModule && removeLesson(selectedModule.id, lid)}
+                  onAddLesson={(type) =>
+                    selectedModule && addLessonToModule(selectedModule.id, type)
+                  }
+                  onRemoveLesson={(lid) =>
+                    selectedModule && removeLesson(selectedModule.id, lid)
+                  }
                   onFinal={ensureFinalAssessment}
                   selectedModule={selectedModule}
                 />
@@ -535,11 +603,17 @@ export default function AdminPanel() {
                   selectedModule={selectedModule}
                   selectedLesson={selectedLesson}
                   onUpdateCourse={updateCourse}
-                  onUpdateModule={(patch) => selectedModule && updateModule(selectedModule.id, patch)}
-                  onUpdateLesson={(patch) =>
-                    selectedModule && selectedLesson && updateLesson(selectedModule.id, selectedLesson.id, patch)
+                  onUpdateModule={(patch) =>
+                    selectedModule && updateModule(selectedModule.id, patch)
                   }
-                  onDeleteCourse={() => selectedCourse && deleteCourse(selectedCourse.id)}
+                  onUpdateLesson={(patch) =>
+                    selectedModule &&
+                    selectedLesson &&
+                    updateLesson(selectedModule.id, selectedLesson.id, patch)
+                  }
+                  onDeleteCourse={() =>
+                    selectedCourse && deleteCourse(selectedCourse.id)
+                  }
                   LEVELS={LEVELS as any}
                 />
               )}
@@ -555,7 +629,9 @@ export default function AdminPanel() {
                     setSelectedCourseId(id);
                     const c = courses.find((x) => x.id === id);
                     setSelectedModuleId(c?.modulesList?.[0]?.id || "");
-                    setSelectedLessonId(c?.modulesList?.[0]?.lessons?.[0]?.id || "");
+                    setSelectedLessonId(
+                      c?.modulesList?.[0]?.lessons?.[0]?.id || ""
+                    );
                   }}
                   onAdd={addNewCourse}
                 />
@@ -568,14 +644,20 @@ export default function AdminPanel() {
                   selectedLessonId={selectedLessonId}
                   onSelectModule={(mid) => {
                     setSelectedModuleId(mid);
-                    const mod = (selectedCourse?.modulesList as Module[])?.find((m) => m.id === mid);
+                    const mod = (selectedCourse?.modulesList as Module[])?.find(
+                      (m) => m.id === mid
+                    );
                     setSelectedLessonId(mod?.lessons?.[0]?.id || "");
                   }}
                   onSelectLesson={(lid) => setSelectedLessonId(lid)}
                   onAddModule={addModule}
                   onRemoveModule={removeModuleById}
-                  onAddLesson={(type) => selectedModule && addLessonToModule(selectedModule.id, type)}
-                  onRemoveLesson={(lid) => selectedModule && removeLesson(selectedModule.id, lid)}
+                  onAddLesson={(type) =>
+                    selectedModule && addLessonToModule(selectedModule.id, type)
+                  }
+                  onRemoveLesson={(lid) =>
+                    selectedModule && removeLesson(selectedModule.id, lid)
+                  }
                   onFinal={ensureFinalAssessment}
                   selectedModule={selectedModule}
                 />
@@ -587,11 +669,17 @@ export default function AdminPanel() {
                   selectedModule={selectedModule}
                   selectedLesson={selectedLesson}
                   onUpdateCourse={updateCourse}
-                  onUpdateModule={(patch) => selectedModule && updateModule(selectedModule.id, patch)}
-                  onUpdateLesson={(patch) =>
-                    selectedModule && selectedLesson && updateLesson(selectedModule.id, selectedLesson.id, patch)
+                  onUpdateModule={(patch) =>
+                    selectedModule && updateModule(selectedModule.id, patch)
                   }
-                  onDeleteCourse={() => selectedCourse && deleteCourse(selectedCourse.id)}
+                  onUpdateLesson={(patch) =>
+                    selectedModule &&
+                    selectedLesson &&
+                    updateLesson(selectedModule.id, selectedLesson.id, patch)
+                  }
+                  onDeleteCourse={() =>
+                    selectedCourse && deleteCourse(selectedCourse.id)
+                  }
                   LEVELS={LEVELS as any}
                 />
               </div>
@@ -716,12 +804,18 @@ function CoursesList({
             }`}
           >
             <div className="font-semibold">{c.title}</div>
-            <div className={`text-xs mt-1 ${selectedCourseId === c.id ? "text-white/80" : "text-gray-500"}`}>
+            <div
+              className={`text-xs mt-1 ${
+                selectedCourseId === c.id ? "text-white/80" : "text-gray-500"
+              }`}
+            >
               {c.level} • {c.category} • {c.modulesList?.length || 0} modules
             </div>
           </button>
         ))}
-        {courses.length === 0 && <div className="text-sm text-gray-600">No courses yet.</div>}
+        {courses.length === 0 && (
+          <div className="text-sm text-gray-600">No courses yet.</div>
+        )}
       </div>
     </CardShell>
   );
@@ -779,7 +873,9 @@ function ModulesLessonsPane({
         {!selectedCourse ? (
           <div className="text-sm text-gray-600">Select a course first.</div>
         ) : (selectedCourse.modulesList ?? []).length === 0 ? (
-          <div className="text-sm text-gray-600">No modules yet. Click “Module”.</div>
+          <div className="text-sm text-gray-600">
+            No modules yet. Click “Module”.
+          </div>
         ) : (
           <div className="space-y-3">
             {(selectedCourse.modulesList as Module[]).map((m, idx) => (
@@ -797,7 +893,13 @@ function ModulesLessonsPane({
                     <div className="font-semibold truncate">
                       {idx + 1}. {m.title}
                     </div>
-                    <div className={`text-xs mt-1 ${selectedModuleId === m.id ? "text-white/80" : "text-gray-500"}`}>
+                    <div
+                      className={`text-xs mt-1 ${
+                        selectedModuleId === m.id
+                          ? "text-white/80"
+                          : "text-gray-500"
+                      }`}
+                    >
                       Lessons: {m.lessons?.length || 0}
                     </div>
                   </div>
@@ -852,7 +954,9 @@ function ModulesLessonsPane({
         }
       >
         {!selectedModule ? (
-          <div className="text-sm text-gray-600">Select a module to see lessons.</div>
+          <div className="text-sm text-gray-600">
+            Select a module to see lessons.
+          </div>
         ) : (selectedModule.lessons || []).length === 0 ? (
           <div className="text-sm text-gray-600">No lessons yet. Add one.</div>
         ) : (
@@ -874,7 +978,13 @@ function ModulesLessonsPane({
                       <div className="font-semibold truncate">
                         {l.title} {isFinal ? "• Final" : ""}
                       </div>
-                      <div className={`text-xs mt-1 ${selectedLessonId === l.id ? "text-white/80" : "text-gray-500"}`}>
+                      <div
+                        className={`text-xs mt-1 ${
+                          selectedLessonId === l.id
+                            ? "text-white/80"
+                            : "text-gray-500"
+                        }`}
+                      >
                         Type: {l.type}
                       </div>
                     </div>

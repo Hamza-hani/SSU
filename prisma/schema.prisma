@@ -3,9 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 enum Role {
@@ -21,4 +20,27 @@ model User {
   role      Role     @default(USER)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model Course {
+  id            String   @id
+  title         String
+  description   String
+  level         String
+  category      String
+  duration      String
+  modules       Int      @default(0)
+  progress      Int      @default(0)
+
+  // nested modules/lessons store as JSON
+  modulesList   Json
+
+  // prerequisites store as array (optional)
+  prerequisites String[] @default([])
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([level])
+  @@index([category])
 }

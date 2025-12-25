@@ -6,7 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import type { Course } from "../../../types";
 import CoursePlayer from "../../../components/CoursePlayer";
-import { loadCourses } from "../../../lib/storage";
+import { EVENTS, loadCourses, syncCoursesFromServer } from "../../../lib/storage";
 import { useAuth } from "../../../contexts/AuthContext";
 
 export default function CourseDetailPageClient() {
@@ -18,15 +18,26 @@ export default function CourseDetailPageClient() {
   const [courses, setCourses] = useState<Course[]>([]);
 
   useEffect(() => {
-    setCourses(loadCourses());
+    const hydrate = () => setCourses(loadCourses());
+    hydrate();
+
+    // ✅ latest DB data
+    syncCoursesFromServer().then(() => hydrate());
+
+    const onCourses = () => hydrate();
+    window.addEventListener(EVENTS.COURSES_UPDATED, onCourses);
+    return () => window.removeEventListener(EVENTS.COURSES_UPDATED, onCourses);
   }, []);
 
   useEffect(() => {
-    if (!ready) return; // ✅ wait auth check
+    if (!ready) return;
     if (!currentUser) router.push("/");
   }, [ready, currentUser, router]);
 
-  const course = useMemo(() => courses.find((c) => c.id === id) || null, [courses, id]);
+  const course = useMemo(
+    () => courses.find((c) => c.id === id) || null,
+    [courses, id]
+  );
 
   if (!ready) {
     return <div className="p-6">Checking login...</div>;
@@ -54,7 +65,11 @@ export default function CourseDetailPageClient() {
         <div className="text-sm text-gray-600 mt-1">{course.description}</div>
       </div>
 
-      <CoursePlayer userId={currentUser.id} courseId={course.id} modules={course.modulesList ?? []} />
+      <CoursePlayer
+        userId={currentUser.id}
+        courseId={course.id}
+        modules={course.modulesList ?? []}
+      />
     </div>
   );
 }

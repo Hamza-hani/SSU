@@ -5,7 +5,13 @@ import { BookOpen, Award, Clock, Search, Filter } from "lucide-react";
 import type { Course, User } from "../types";
 import CourseCard from "./CourseCard";
 import { useRouter } from "next/navigation";
-import { EVENTS, loadCourses, loadProgressMap, calcCourseProgressPct } from "../lib/storage";
+import {
+  EVENTS,
+  loadCourses,
+  loadProgressMap,
+  calcCourseProgressPct,
+  syncCoursesFromServer,
+} from "../lib/storage";
 
 interface DashboardProps {
   user: User;
@@ -25,6 +31,9 @@ export default function Dashboard({ user }: DashboardProps) {
     const hydrate = () => setCourses(loadCourses());
     hydrate();
 
+    // ✅ always get latest from DB on live
+    syncCoursesFromServer().then(() => hydrate());
+
     const onCourses = () => hydrate();
     const onProgress = () => setProgressTick((x) => x + 1);
 
@@ -37,8 +46,10 @@ export default function Dashboard({ user }: DashboardProps) {
     };
   }, []);
 
-  // ✅ reload progress map whenever progressTick changes
-  const progressMap = useMemo(() => loadProgressMap(user.id), [user.id, progressTick]);
+  const progressMap = useMemo(
+    () => loadProgressMap(user.id),
+    [user.id, progressTick]
+  );
 
   const coursesWithProgress = useMemo(() => {
     return courses.map((c) => {
@@ -74,7 +85,6 @@ export default function Dashboard({ user }: DashboardProps) {
   }, [coursesWithProgress, searchTerm, selectedLevel]);
 
   const handleCourseClick = (courseId: string) => {
-    // ✅ fastest + safest navigation
     router.push(`/course/${courseId}`);
   };
 
