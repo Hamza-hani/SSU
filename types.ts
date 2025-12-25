@@ -101,6 +101,7 @@ export interface Course {
 export interface UserCourseProgress {
   completedLessonIds: string[];
   finalScore?: number;
+  finalPassed?: boolean; // ✅ FIX: added
 }
 
 /** Map: courseId => progress */

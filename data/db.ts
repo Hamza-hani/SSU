@@ -25,6 +25,7 @@ function safeParse<T>(raw: string | null, fallback: T): T {
 export function seedIfEmpty() {
   const users = safeParse<StoredUser[]>(localStorage.getItem(USERS_KEY), []);
   const courses = safeParse<Course[]>(localStorage.getItem(COURSES_KEY), []);
+
   if (courses.length === 0) localStorage.setItem(COURSES_KEY, JSON.stringify(defaultCourses));
   if (users.length === 0) localStorage.setItem(USERS_KEY, JSON.stringify([]));
 }
@@ -89,19 +90,29 @@ export function setProgressMap(userId: string, map: ProgressMap) {
   localStorage.setItem(key, JSON.stringify(map));
 }
 
+function ensureCourseProgress(map: ProgressMap, courseId: string): UserCourseProgress {
+  return map[courseId] ?? { completedLessonIds: [] };
+}
+
 export function markLessonComplete(userId: string, courseId: string, lessonId: string) {
   const map = getProgressMap(userId);
-  const cur: UserCourseProgress = map[courseId] ?? { completedLessonIds: [] };
-  if (!cur.completedLessonIds.includes(lessonId)) cur.completedLessonIds.push(lessonId);
+  const cur = ensureCourseProgress(map, courseId);
+
+  if (!cur.completedLessonIds.includes(lessonId)) {
+    cur.completedLessonIds.push(lessonId);
+  }
+
   map[courseId] = cur;
   setProgressMap(userId, map);
 }
 
 export function setFinalResult(userId: string, courseId: string, score: number, passed: boolean) {
   const map = getProgressMap(userId);
-  const cur: UserCourseProgress = map[courseId] ?? { completedLessonIds: [] };
-  cur.finalScore = score;
-  cur.finalPassed = passed;
+  const cur = ensureCourseProgress(map, courseId);
+
+  cur.finalScore = Number(score);
+  cur.finalPassed = !!passed; // ✅ now type-safe
+
   map[courseId] = cur;
   setProgressMap(userId, map);
 }
