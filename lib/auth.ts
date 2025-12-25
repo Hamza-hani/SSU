@@ -5,10 +5,7 @@ const encoder = new TextEncoder();
 
 function getJwtSecret() {
   const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    // production me yeh missing hoga to login/signup break ho jayega (correct behavior)
-    throw new Error("Missing JWT_SECRET env var");
-  }
+  if (!secret) throw new Error("Missing JWT_SECRET env var");
   return encoder.encode(secret);
 }
 

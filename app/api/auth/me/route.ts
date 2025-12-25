@@ -4,13 +4,16 @@ import { prisma } from "@/lib/prisma";
 import { verifyToken, normalizeRole } from "@/lib/auth";
 
 export async function GET() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("ssu_token")?.value;
+  const token = cookies().get("ssu_token")?.value;
 
   if (!token) return NextResponse.json({ user: null }, { status: 200 });
 
   try {
-    const payload = (await verifyToken(token)) as { userId?: string; role?: string };
+    const payload = (await verifyToken(token)) as {
+      userId?: string;
+      role?: string;
+    };
+
     if (!payload?.userId) return NextResponse.json({ user: null }, { status: 200 });
 
     const user = await prisma.user.findUnique({

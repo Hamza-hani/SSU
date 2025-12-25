@@ -10,22 +10,23 @@ export async function POST(req: Request) {
     const password = String(body?.password || "");
 
     if (!name || !email || !password) {
-      return NextResponse.json({ ok: false, message: "Missing fields" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, message: "Missing fields" },
+        { status: 400 }
+      );
     }
 
     if (password.length < 6) {
-      return NextResponse.json({ ok: false, message: "Password too short" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, message: "Password too short" },
+        { status: 400 }
+      );
     }
 
     const hashed = await hashPassword(password);
 
     const user = await prisma.user.create({
-      data: {
-        name,
-        email,
-        password: hashed,
-        role: "USER",
-      },
+      data: { name, email, password: hashed, role: "USER" },
       select: { id: true, name: true, email: true, role: true },
     });
 
@@ -44,11 +45,16 @@ export async function POST(req: Request) {
 
     return res;
   } catch (err: any) {
-    // Unique constraint (email already exists)
     if (err?.code === "P2002") {
-      return NextResponse.json({ ok: false, message: "Email already exists" }, { status: 409 });
+      return NextResponse.json(
+        { ok: false, message: "Email already exists" },
+        { status: 409 }
+      );
     }
     console.error("SIGNUP_ERROR:", err);
-    return NextResponse.json({ ok: false, message: "Server error during signup." }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, message: "Server error during signup." },
+      { status: 500 }
+    );
   }
 }

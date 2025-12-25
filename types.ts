@@ -1,4 +1,3 @@
-// types.ts
 export type UserRole = "admin" | "user";
 
 export interface User {
@@ -7,21 +6,17 @@ export interface User {
   email: string;
   role: UserRole;
 
-  // optional
   unlockedCourses?: string[];
   enrolledCourses?: string[];
 }
 
-/** Supported lesson types */
 export type LessonType = "text" | "video" | "quiz";
 
-/** Video source options */
 export type VideoSource =
   | { kind: "mp4"; url: string }
   | { kind: "youtube"; id: string }
   | { kind: "idb"; key: string; filename?: string };
 
-/** Quiz types */
 export interface QuizOption {
   id: string;
   text: string;
@@ -42,45 +37,35 @@ export interface Quiz {
   questions: QuizQuestion[];
 }
 
-/** Gate rules */
 export interface LessonGate {
   requiresAllPreviousLessons?: boolean;
 }
 
-/** Lesson */
 export interface Lesson {
   id: string;
   title: string;
   type: LessonType;
 
-  // text
   content?: string;
-
-  // video (AdminPanel uses lesson.video ✅)
   video?: VideoSource;
 
-  // (optional legacy/compat if you use elsewhere)
   url?: string;
   source?: VideoSource;
 
   completed?: boolean;
 
-  // final assessment helpers
   isFinalAssessment?: boolean;
   gate?: LessonGate;
 
-  // quiz
   quiz?: Quiz;
 }
 
-/** Module */
 export interface Module {
   id: string;
   title: string;
   lessons: Lesson[];
 }
 
-/** Course */
 export interface Course {
   id: string;
   title: string;
@@ -88,21 +73,16 @@ export interface Course {
   level: "Beginner" | "Intermediate" | "Advanced";
   category: string;
   duration: string;
-
   modules: number;
   progress?: number;
-
   modulesList: Module[];
-
   prerequisites?: string[];
 }
 
-/** Progress per user per course */
 export interface UserCourseProgress {
   completedLessonIds: string[];
   finalScore?: number;
-  finalPassed?: boolean; // ✅ FIX: added
+  finalPassed?: boolean;
 }
 
-/** Map: courseId => progress */
 export type ProgressMap = Record<string, UserCourseProgress>;

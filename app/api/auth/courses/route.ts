@@ -7,7 +7,7 @@ function isAdminRole(role?: string) {
   return String(role || "").toLowerCase() === "admin";
 }
 
-// GET: public (or logged-in) — returns all courses from DB
+// GET: returns all courses from DB
 export async function GET() {
   try {
     const list = await prisma.course.findMany({
@@ -23,7 +23,7 @@ export async function GET() {
       duration: c.duration,
       modules: c.modules,
       progress: c.progress,
-      modulesList: c.modulesList,
+      modulesList: (c.modulesList as any) ?? [],
       prerequisites: c.prerequisites ?? [],
     }));
 
@@ -38,8 +38,7 @@ export async function GET() {
 
 // PUT: admin only — saves full array
 export async function PUT(req: Request) {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("ssu_token")?.value;
+  const token = cookies().get("ssu_token")?.value;
 
   if (!token) {
     return NextResponse.json(
@@ -50,7 +49,8 @@ export async function PUT(req: Request) {
 
   let payload: any;
   try {
-    payload = verifyToken(token);
+    // ✅ CRITICAL FIX: verifyToken is async => MUST await
+    payload = await verifyToken(token);
   } catch {
     return NextResponse.json(
       { ok: false, message: "Unauthorized" },
@@ -70,6 +70,12 @@ export async function PUT(req: Request) {
 
   try {
     await prisma.$transaction(async (tx) => {
+      // If admin saved empty list => delete all courses
+      if (courses.length === 0) {
+        await tx.course.deleteMany({});
+        return;
+      }
+
       const ids = new Set<string>(courses.map((c: any) => String(c.id)));
 
       // delete removed
@@ -80,6 +86,7 @@ export async function PUT(req: Request) {
       // upsert all
       for (const c of courses) {
         const id = String(c.id);
+
         await tx.course.upsert({
           where: { id },
           update: {
@@ -90,7 +97,7 @@ export async function PUT(req: Request) {
             duration: String(c.duration || ""),
             modules: Number(c.modules || 0),
             progress: Number(c.progress || 0),
-            modulesList: c.modulesList ?? [],
+            modulesList: (c.modulesList ?? []) as any,
             prerequisites: Array.isArray(c.prerequisites)
               ? c.prerequisites.map(String)
               : [],
@@ -104,7 +111,7 @@ export async function PUT(req: Request) {
             duration: String(c.duration || ""),
             modules: Number(c.modules || 0),
             progress: Number(c.progress || 0),
-            modulesList: c.modulesList ?? [],
+            modulesList: (c.modulesList ?? []) as any,
             prerequisites: Array.isArray(c.prerequisites)
               ? c.prerequisites.map(String)
               : [],

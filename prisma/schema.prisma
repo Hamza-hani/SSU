@@ -32,10 +32,7 @@ model Course {
   modules       Int      @default(0)
   progress      Int      @default(0)
 
-  // nested modules/lessons store as JSON
   modulesList   Json
-
-  // prerequisites store as array (optional)
   prerequisites String[] @default([])
 
   createdAt     DateTime @default(now())

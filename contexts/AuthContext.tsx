@@ -5,7 +5,7 @@ import type { User } from "../types";
 
 type AuthContextValue = {
   currentUser: User | null;
-  ready: boolean; // ✅ auth check finished
+  ready: boolean;
   setCurrentUser: React.Dispatch<React.SetStateAction<User | null>>;
   refreshMe: () => Promise<void>;
   logout: () => Promise<void>;
@@ -33,17 +33,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
-      await fetch("/api/auth/logout", {
-        method: "POST",
-        credentials: "include",
-      });
+      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
     } finally {
       setCurrentUser(null);
       setReady(true);
     }
   };
 
-  // ✅ Keep localStorage in sync for components still using lib/storage.getCurrentUser()
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {

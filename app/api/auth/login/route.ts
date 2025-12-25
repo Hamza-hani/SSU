@@ -10,12 +10,18 @@ export async function POST(req: Request) {
   });
 
   if (!user) {
-    return NextResponse.json({ ok: false, message: "Invalid credentials" }, { status: 401 });
+    return NextResponse.json(
+      { ok: false, message: "Invalid credentials" },
+      { status: 401 }
+    );
   }
 
   const ok = await verifyPassword(String(password || ""), user.password);
   if (!ok) {
-    return NextResponse.json({ ok: false, message: "Invalid credentials" }, { status: 401 });
+    return NextResponse.json(
+      { ok: false, message: "Invalid credentials" },
+      { status: 401 }
+    );
   }
 
   const role = normalizeRole(user.role);
