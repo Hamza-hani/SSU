@@ -1,25 +1,15 @@
-import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
+import { SignJWT, jwtVerify } from "jose";
 
-export type JwtPayload = {
-  userId: string;
-  role: "ADMIN" | "USER";
-};
+const encoder = new TextEncoder();
 
-const SECRET = process.env.JWT_SECRET || "";
-
-export function assertSecret() {
-  if (!SECRET) throw new Error("JWT_SECRET missing in .env");
-}
-
-export function signToken(payload: JwtPayload) {
-  assertSecret();
-  return jwt.sign(payload, SECRET, { expiresIn: "7d" });
-}
-
-export function verifyToken(token: string): JwtPayload {
-  assertSecret();
-  return jwt.verify(token, SECRET) as JwtPayload;
+function getJwtSecret() {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    // production me yeh missing hoga to login/signup break ho jayega (correct behavior)
+    throw new Error("Missing JWT_SECRET env var");
+  }
+  return encoder.encode(secret);
 }
 
 export async function hashPassword(password: string) {
@@ -28,4 +18,23 @@ export async function hashPassword(password: string) {
 
 export async function verifyPassword(password: string, hashed: string) {
   return bcrypt.compare(password, hashed);
+}
+
+export function normalizeRole(role: unknown): "admin" | "user" {
+  return String(role || "").toUpperCase() === "ADMIN" ? "admin" : "user";
+}
+
+export async function signToken(payload: { userId: string; role: "admin" | "user" }) {
+  const secret = getJwtSecret();
+  return new SignJWT(payload)
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("7d")
+    .sign(secret);
+}
+
+export async function verifyToken(token: string) {
+  const secret = getJwtSecret();
+  const { payload } = await jwtVerify(token, secret);
+  return payload; // { userId, role, iat, exp }
 }

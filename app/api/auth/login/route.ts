@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { verifyPassword, signToken } from "@/lib/auth";
+import { verifyPassword, signToken, normalizeRole } from "@/lib/auth";
 
 export async function POST(req: Request) {
   const { email, password } = await req.json();
@@ -18,11 +18,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, message: "Invalid credentials" }, { status: 401 });
   }
 
-  const token = signToken({ userId: user.id, role: user.role });
+  const role = normalizeRole(user.role);
+  const token = await signToken({ userId: user.id, role });
 
   const res = NextResponse.json({
     ok: true,
-    user: { id: user.id, name: user.name, email: user.email, role: user.role },
+    user: { id: user.id, name: user.name, email: user.email, role },
   });
 
   res.cookies.set("ssu_token", token, {
