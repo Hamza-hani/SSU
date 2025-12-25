@@ -38,7 +38,9 @@ export async function GET() {
 
 // PUT: admin only — saves full array
 export async function PUT(req: Request) {
-  const token = cookies().get("ssu_token")?.value;
+  // ✅ Next.js latest: cookies() can be async => must await
+  const cookieStore = await cookies();
+  const token = cookieStore.get("ssu_token")?.value;
 
   if (!token) {
     return NextResponse.json(
@@ -49,7 +51,7 @@ export async function PUT(req: Request) {
 
   let payload: any;
   try {
-    // ✅ CRITICAL FIX: verifyToken is async => MUST await
+    // ✅ verifyToken is async => MUST await
     payload = await verifyToken(token);
   } catch {
     return NextResponse.json(
